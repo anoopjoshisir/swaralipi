@@ -1,60 +1,20 @@
 <div class="app-container">
-  <!-- Header -->
-  <header class="app-header">
-    <h1>{{ title }}</h1>
-    <div class="header-actions">
-      <button class="btn btn-primary" (click)="saveComposition()">💾 Save</button>
-      <button class="btn btn-primary" (click)="loadComposition()">📂 Load</button>
-      <button class="btn btn-danger" (click)="clearGrid()">🗑️ Clear</button>
-      <button class="btn btn-secondary" (click)="undo()">↶ Undo</button>
-      <button class="btn btn-secondary" (click)="redo()">↷ Redo</button>
-    </div>
-  </header>
+  <!-- Toolbar -->
+  <app-toolbar></app-toolbar>
 
   <!-- Main Content -->
   <div class="app-main">
-    <!-- Left Sidebar -->
-    <aside class="sidebar">
-      <div class="sidebar-panel">
-        <h3>Composition</h3>
-        <div class="form-group">
-          <label>Taal</label>
-          <select (change)="onTaalChange($event)" class="form-control">
-            @for (taal of taals; track taal) {
-              <option [value]="taal">{{ taal }}</option>
-            }
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Tempo (BPM)</label>
-          <input
-            type="range"
-            min="40"
-            max="200"
-            value="120"
-            (input)="onTempoChange($event)"
-            class="form-control"
-          />
-        </div>
-      </div>
-
-      <div class="sidebar-panel">
-        <h3>Quick Help</h3>
-        <div class="help-list">
-          <p><kbd>↑↓←→</kbd> Navigate</p>
-          <p><kbd>Enter</kbd> Edit</p>
-          <p><kbd>Esc</kbd> Exit edit</p>
-          <p><kbd>s,r,g,m,p,d,n</kbd> Swar</p>
-          <p><kbd>Ctrl+L</kbd> Lower octave</p>
-          <p><kbd>Ctrl+U</kbd> Upper octave</p>
-        </div>
-      </div>
-    </aside>
-
-    <!-- Notation Grid -->
+    <!-- Notation Grid Area -->
     <main class="content-area">
+      <!-- Playback Controls -->
+      <app-playback-controls></app-playback-controls>
+
+      <!-- Notation Grid -->
       <app-notation-grid></app-notation-grid>
     </main>
+
+    <!-- Sidebar -->
+    <app-sidebar></app-sidebar>
   </div>
 </div>
 

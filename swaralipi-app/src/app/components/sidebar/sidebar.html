@@ -1,1 +1,214 @@
-<p>sidebar works!</p>
+<div class="sidebar">
+  <!-- Composition Metadata -->
+  <div class="sidebar-panel">
+    <h3 class="panel-title">Composition Details</h3>
+    <div class="panel-content">
+      <div class="form-group">
+        <label for="title">Title</label>
+        <input
+          id="title"
+          type="text"
+          class="form-control"
+          [value]="metadata.title || ''"
+          (input)="onTitleChange($event)"
+          placeholder="Enter composition title"
+        />
+      </div>
+
+      <div class="form-group">
+        <label for="artist">Artist</label>
+        <input
+          id="artist"
+          type="text"
+          class="form-control"
+          [value]="metadata.artist || ''"
+          (input)="onArtistChange($event)"
+          placeholder="Enter artist name"
+        />
+      </div>
+
+      <div class="form-group">
+        <label for="raga">Raga</label>
+        <input
+          id="raga"
+          type="text"
+          class="form-control"
+          [value]="metadata.raga || ''"
+          (input)="onRagaChange($event)"
+          placeholder="Enter raga name"
+          list="common-ragas"
+        />
+        <datalist id="common-ragas">
+          @for (raga of commonRagas; track raga) {
+            <option [value]="raga">{{ raga }}</option>
+          }
+        </datalist>
+      </div>
+
+      <div class="common-ragas">
+        <label class="label-sm">Common Ragas:</label>
+        <div class="raga-chips">
+          @for (raga of commonRagas.slice(0, 6); track raga) {
+            <button
+              class="chip"
+              (click)="selectCommonRaga(raga)"
+              [class.active]="metadata.raga === raga">
+              {{ raga }}
+            </button>
+          }
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="taal">Taal</label>
+        <select
+          id="taal"
+          class="form-control"
+          [value]="metadata.taal"
+          (change)="onTaalChange($event)">
+          @for (taal of taals; track taal) {
+            <option [value]="taal">{{ taal }}</option>
+          }
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="tempo">
+          Tempo: <span class="value-display">{{ metadata.tempo }} BPM</span>
+        </label>
+        <input
+          id="tempo"
+          type="range"
+          min="40"
+          max="200"
+          [value]="metadata.tempo"
+          (input)="onTempoChange($event)"
+          class="slider"
+        />
+      </div>
+
+      <div class="form-group">
+        <label for="volume-sidebar">
+          Volume: <span class="value-display">{{ (volume * 100).toFixed(0) }}%</span>
+        </label>
+        <input
+          id="volume-sidebar"
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          [value]="volume"
+          (input)="onVolumeChange($event)"
+          class="slider"
+        />
+      </div>
+    </div>
+  </div>
+
+  <!-- Taal Information -->
+  <div class="sidebar-panel">
+    <h3 class="panel-title" (click)="toggleTaalInfo()">
+      <span>Taal Information</span>
+      <span class="toggle-icon">{{ showTaalInfo ? '▼' : '▶' }}</span>
+    </h3>
+    @if (showTaalInfo) {
+      <div class="panel-content">
+        <div class="info-item">
+          <span class="info-label">Name:</span>
+          <span class="info-value">{{ currentTaal.name }}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Beats:</span>
+          <span class="info-value">{{ currentTaal.beats }}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Pattern:</span>
+          <span class="info-value">{{ getTaalPattern() }}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Markers:</span>
+          <span class="info-value">{{ getTaalMarkers() }}</span>
+        </div>
+      </div>
+    }
+  </div>
+
+  <!-- Swar Reference -->
+  <div class="sidebar-panel">
+    <h3 class="panel-title" (click)="toggleSwarReference()">
+      <span>Swar Reference</span>
+      <span class="toggle-icon">{{ showSwarReference ? '▼' : '▶' }}</span>
+    </h3>
+    @if (showSwarReference) {
+      <div class="panel-content">
+        <div class="reference-grid">
+          @for (swar of swars; track swar) {
+            <button
+              class="reference-btn"
+              (click)="playSwarPreview(swar)"
+              [title]="'Play ' + swar">
+              {{ swar }}
+            </button>
+          }
+        </div>
+        <div class="help-text">
+          <small>Click to preview swar sound</small>
+        </div>
+      </div>
+    }
+  </div>
+
+  <!-- Bol Reference -->
+  <div class="sidebar-panel">
+    <h3 class="panel-title" (click)="toggleBolReference()">
+      <span>Tabla Bol Reference</span>
+      <span class="toggle-icon">{{ showBolReference ? '▼' : '▶' }}</span>
+    </h3>
+    @if (showBolReference) {
+      <div class="panel-content">
+        <div class="reference-grid">
+          @for (bol of bols; track bol) {
+            <div class="reference-item">{{ bol }}</div>
+          }
+        </div>
+      </div>
+    }
+  </div>
+
+  <!-- Quick Help -->
+  <div class="sidebar-panel">
+    <h3 class="panel-title">Quick Shortcuts</h3>
+    <div class="panel-content">
+      <div class="shortcut-list">
+        <div class="shortcut-item">
+          <kbd>↑↓←→</kbd>
+          <span>Navigate</span>
+        </div>
+        <div class="shortcut-item">
+          <kbd>Enter</kbd>
+          <span>Edit cell</span>
+        </div>
+        <div class="shortcut-item">
+          <kbd>s,r,g,m,p,d,n</kbd>
+          <span>Swars</span>
+        </div>
+        <div class="shortcut-item">
+          <kbd>Ctrl+L</kbd>
+          <span>Lower octave</span>
+        </div>
+        <div class="shortcut-item">
+          <kbd>Ctrl+U</kbd>
+          <span>Upper octave</span>
+        </div>
+        <div class="shortcut-item">
+          <kbd>Ctrl+Z</kbd>
+          <span>Undo</span>
+        </div>
+        <div class="shortcut-item">
+          <kbd>Ctrl+Y</kbd>
+          <span>Redo</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

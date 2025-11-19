@@ -1,1 +1,98 @@
-<p>playback-controls works!</p>
+<div class="playback-controls">
+  <!-- Main Playback Buttons -->
+  <div class="control-section main-controls">
+    <button
+      class="control-btn control-btn-large"
+      (click)="previousRow()"
+      [disabled]="currentRow === 0"
+      title="Previous Row">
+      <span class="icon">⏮</span>
+    </button>
+
+    <button
+      class="control-btn control-btn-large"
+      (click)="stop()"
+      [disabled]="!isPlaying && !isPaused"
+      title="Stop">
+      <span class="icon">⏹</span>
+    </button>
+
+    <button
+      class="control-btn control-btn-large control-btn-primary"
+      (click)="togglePlayPause()"
+      title="{{ isPlaying ? 'Pause' : 'Play' }}">
+      <span class="icon">{{ isPlaying ? '⏸' : '▶' }}</span>
+    </button>
+
+    <button
+      class="control-btn control-btn-large"
+      (click)="nextRow()"
+      title="Next Row">
+      <span class="icon">⏭</span>
+    </button>
+
+    <button
+      class="control-btn"
+      (click)="playFromCurrentRow()"
+      title="Play from Current Row">
+      <span class="icon">⏯</span>
+    </button>
+
+    <button
+      class="control-btn"
+      [class.active]="loopEnabled"
+      (click)="toggleLoop()"
+      title="Toggle Loop">
+      <span class="icon">🔁</span>
+    </button>
+  </div>
+
+  <!-- Tempo Control -->
+  <div class="control-section tempo-control">
+    <label for="tempo-slider">
+      <span class="label-text">Tempo:</span>
+      <span class="value-display">{{ tempo }} BPM</span>
+    </label>
+    <input
+      id="tempo-slider"
+      type="range"
+      min="40"
+      max="200"
+      [value]="tempo"
+      (input)="onTempoChange($event)"
+      class="slider"
+    />
+  </div>
+
+  <!-- Volume Control -->
+  <div class="control-section volume-control">
+    <label for="volume-slider">
+      <span class="label-text">Volume:</span>
+      <span class="value-display">{{ (volume * 100).toFixed(0) }}%</span>
+    </label>
+    <input
+      id="volume-slider"
+      type="range"
+      min="0"
+      max="1"
+      step="0.01"
+      [value]="volume"
+      (input)="onVolumeChange($event)"
+      class="slider"
+    />
+  </div>
+
+  <!-- Playback Status -->
+  <div class="control-section status-display">
+    <div class="status-item">
+      <span class="status-label">Status:</span>
+      <span class="status-value" [class.playing]="isPlaying" [class.paused]="isPaused">
+        {{ isPlaying ? 'Playing' : (isPaused ? 'Paused' : 'Stopped') }}
+      </span>
+    </div>
+    <div class="status-item">
+      <span class="status-label">Position:</span>
+      <span class="status-value">Row {{ currentRow + 1 }}, Beat {{ currentCol }}</span>
+    </div>
+  </div>
+</div>

@@ -1,1 +1,96 @@
-<p>toolbar works!</p>
+<div class="toolbar">
+  <!-- File Operations -->
+  <div class="toolbar-group">
+    <button class="toolbar-btn" (click)="newComposition()" title="New Composition (Ctrl+N)">
+      <span class="icon">📄</span>
+      <span class="label">New</span>
+    </button>
+
+    <button class="toolbar-btn" (click)="loadComposition()" title="Open Composition (Ctrl+O)">
+      <span class="icon">📂</span>
+      <span class="label">Open</span>
+    </button>
+
+    <button class="toolbar-btn" (click)="saveComposition()" title="Save Composition (Ctrl+S)">
+      <span class="icon">💾</span>
+      <span class="label">Save</span>
+    </button>
+  </div>
+
+  <div class="toolbar-separator"></div>
+
+  <!-- Edit Operations -->
+  <div class="toolbar-group">
+    <button class="toolbar-btn" (click)="undo()" title="Undo (Ctrl+Z)">
+      <span class="icon">↶</span>
+      <span class="label">Undo</span>
+    </button>
+
+    <button class="toolbar-btn" (click)="redo()" title="Redo (Ctrl+Y)">
+      <span class="icon">↷</span>
+      <span class="label">Redo</span>
+    </button>
+  </div>
+
+  <div class="toolbar-separator"></div>
+
+  <!-- Row Operations -->
+  <div class="toolbar-group">
+    <button class="toolbar-btn" (click)="insertRow()" title="Insert Row (Ctrl+I)">
+      <span class="icon">➕</span>
+      <span class="label">Insert Row</span>
+    </button>
+
+    <button class="toolbar-btn" (click)="deleteRow()" title="Delete Row (Ctrl+D)">
+      <span class="icon">➖</span>
+      <span class="label">Delete Row</span>
+    </button>
+  </div>
+
+  <div class="toolbar-separator"></div>
+
+  <!-- Export Operations -->
+  <div class="toolbar-group">
+    <div class="dropdown">
+      <button class="toolbar-btn dropdown-toggle" title="Export">
+        <span class="icon">📥</span>
+        <span class="label">Export</span>
+        <span class="dropdown-arrow">▼</span>
+      </button>
+      <div class="dropdown-menu">
+        <button class="dropdown-item" (click)="exportAsPDF()">
+          <span class="icon">📄</span>
+          Export as PDF
+        </button>
+        <button class="dropdown-item" (click)="exportAsPNG()">
+          <span class="icon">🖼️</span>
+          Export as PNG
+        </button>
+        <button class="dropdown-item" (click)="exportAsSVG()">
+          <span class="icon">🎨</span>
+          Export as SVG
+        </button>
+      </div>
+    </div>
+
+    <button class="toolbar-btn" (click)="print()" title="Print (Ctrl+P)">
+      <span class="icon">🖨️</span>
+      <span class="label">Print</span>
+    </button>
+  </div>
+
+  <div class="toolbar-separator"></div>
+
+  <!-- Help -->
+  <div class="toolbar-group">
+    <button class="toolbar-btn" (click)="showHelp()" title="Keyboard Shortcuts">
+      <span class="icon">❓</span>
+      <span class="label">Help</span>
+    </button>
+
+    <button class="toolbar-btn" (click)="showAbout()" title="About Swaralipi">
+      <span class="icon">ℹ️</span>
+      <span class="label">About</span>
+    </button>
+  </div>
+</div>
