@@ -1,0 +1,152 @@
+.notation-grid-container {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.notation-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-family: 'BHU Musical', 'Noto Sans Devanagari', Arial, sans-serif;
+  table-layout: fixed;
+
+  thead th {
+    background: #2c3e50;
+    color: white;
+    padding: 12px 8px;
+    text-align: center;
+    font-weight: 600;
+    border: 1px solid #34495e;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    min-width: 80px;
+
+    &.row-header {
+      min-width: 60px;
+    }
+
+    &.taal-marker {
+      background: #e74c3c;
+      font-size: 16px;
+      font-weight: bold;
+    }
+
+    &.beat-marker {
+      background: #3498db;
+      font-size: 14px;
+    }
+  }
+
+  tbody td {
+    border: 2px solid #bdc3c7;
+    padding: 10px;
+    text-align: center;
+    min-height: 80px;
+    height: 80px;
+    vertical-align: middle;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+
+    &.row-header {
+      background: #ecf0f1;
+      font-weight: bold;
+      color: #2c3e50;
+      min-width: 60px;
+    }
+
+    &.taal-marker-cell {
+      background: #ebf5fb;
+    }
+
+    &:hover:not(.row-header) {
+      background: #f8f9fa;
+      border-color: #3498db;
+    }
+
+    &.selected {
+      background: #fff3cd !important;
+      border: 3px solid #ffc107;
+      box-shadow: inset 0 0 0 2px #ffc107;
+    }
+
+    &.editing {
+      background: #d1ecf1 !important;
+      border: 3px solid #17a2b8;
+    }
+  }
+}
+
+.cell-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 60px;
+}
+
+.swar-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  position: relative;
+  font-size: 24px;
+  font-weight: bold;
+  color: #2c3e50;
+  min-height: 30px;
+
+  .swar-text {
+    font-family: 'BHU Musical', 'Noto Sans Devanagari', Arial, sans-serif;
+  }
+
+  .modifier-upper {
+    position: absolute;
+    top: -10px;
+    font-size: 16px;
+    color: #e74c3c;
+  }
+
+  .modifier-lower {
+    position: absolute;
+    bottom: -10px;
+    font-size: 16px;
+    color: #3498db;
+  }
+
+  .modifier-meend {
+    margin-left: 4px;
+    color: #9b59b6;
+    font-size: 18px;
+  }
+
+  .modifier-kan {
+    position: absolute;
+    left: -8px;
+    top: 0;
+    font-size: 14px;
+    color: #16a085;
+  }
+}
+
+.bol-line {
+  font-size: 18px;
+  color: #7f8c8d;
+  min-height: 25px;
+  font-family: 'BHU Musical', 'Noto Sans Devanagari', Arial, sans-serif;
+
+  .bol-text {
+    font-weight: 500;
+  }
+}
+
+.row-number {
+  font-size: 16px;
+  font-weight: bold;
+  color: #2c3e50;
+}

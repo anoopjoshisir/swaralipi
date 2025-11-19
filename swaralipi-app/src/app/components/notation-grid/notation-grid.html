@@ -1,0 +1,62 @@
+<div class="notation-grid-container">
+  <table class="notation-table">
+    <thead>
+      <tr>
+        <th class="row-header">Row</th>
+        @for (cell of grid[0]; track trackByIndex($index); let col = $index) {
+          @if (col > 0) {
+            <th [class.taal-marker]="isTaalMarker(col)" [class.beat-marker]="!isTaalMarker(col)">
+              {{ getTaalMarker(col) }}
+            </th>
+          }
+        }
+      </tr>
+    </thead>
+    <tbody>
+      @for (row of grid; track trackByIndex($index); let rowIdx = $index) {
+        <tr>
+          @for (cell of row; track trackByIndex($index); let colIdx = $index) {
+            <td
+              [class.selected]="isSelected(rowIdx, colIdx)"
+              [class.editing]="isCellEditing(rowIdx, colIdx)"
+              [class.row-header]="colIdx === 0"
+              [class.taal-marker-cell]="isTaalMarker(colIdx) && colIdx > 0"
+              (click)="onCellClick(rowIdx, colIdx, $event)"
+              (dblclick)="onCellDblClick(rowIdx, colIdx)"
+            >
+              @if (colIdx === 0) {
+                <!-- Row number header -->
+                <div class="row-number">{{ rowIdx + 1 }}</div>
+              } @else {
+                <!-- Two-line notation: Swar on top, Bol on bottom -->
+                <div class="cell-content">
+                  <!-- Swar line (top) -->
+                  <div class="swar-line">
+                    @if (cell.modifiers.includes('upper')) {
+                      <span class="modifier-upper">⎺</span>
+                    }
+                    <span class="swar-text">{{ cell.swar }}</span>
+                    @if (cell.modifiers.includes('lower')) {
+                      <span class="modifier-lower">_</span>
+                    }
+                    @if (cell.modifiers.includes('meend')) {
+                      <span class="modifier-meend">∽</span>
+                    }
+                    @if (cell.modifiers.includes('kan')) {
+                      <span class="modifier-kan">ᐩ</span>
+                    }
+                  </div>
+
+                  <!-- Bol line (bottom) -->
+                  <div class="bol-line">
+                    <span class="bol-text">{{ cell.bol }}</span>
+                  </div>
+                </div>
+              }
+            </td>
+          }
+        </tr>
+      }
+    </tbody>
+  </table>
+</div>
