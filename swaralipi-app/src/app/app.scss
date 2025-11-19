@@ -1,0 +1,116 @@
+.app-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.app-header {
+  background: #2c3e50;
+  color: white;
+  padding: 15px 30px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+
+  h1 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 600;
+    font-family: 'BHU Musical', sans-serif;
+  }
+
+  .header-actions {
+    display: flex;
+    gap: 10px;
+  }
+}
+
+.app-main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  padding: 15px;
+  gap: 15px;
+}
+
+.sidebar {
+  width: 280px;
+  background: white;
+  border-radius: 10px;
+  padding: 15px;
+  overflow-y: auto;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+
+  .sidebar-panel {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 15px;
+
+    h3 {
+      font-size: 16px;
+      margin-bottom: 12px;
+      color: #2c3e50;
+      border-bottom: 2px solid #4a90e2;
+      padding-bottom: 5px;
+    }
+  }
+
+  .form-group {
+    margin-bottom: 15px;
+
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 5px;
+      color: #2c3e50;
+    }
+
+    .form-control {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #bdc3c7;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+  }
+
+  .help-list {
+    font-size: 13px;
+
+    p {
+      padding: 5px 0;
+      margin: 0;
+      border-bottom: 1px solid #ecf0f1;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+
+      &:last-child {
+        border-bottom: none;
+      }
+    }
+  }
+}
+
+.content-area {
+  flex: 1;
+  background: white;
+  border-radius: 10px;
+  padding: 15px;
+  overflow: auto;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+@media (max-width: 768px) {
+  .app-main {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+  }
+}
