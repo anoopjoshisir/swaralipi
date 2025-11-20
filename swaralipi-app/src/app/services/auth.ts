@@ -1,5 +1,27 @@
 import { Injectable } from '@angular/core';
 import { BehaviorSubject, Observable } from 'rxjs';
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
+  signOut,
+  updateProfile,
+  sendPasswordResetEmail,
+  sendEmailVerification,
+  deleteUser,
+  onAuthStateChanged,
+  User as FirebaseUser
+} from 'firebase/auth';
+import {
+  doc,
+  setDoc,
+  getDoc,
+  updateDoc,
+  serverTimestamp,
+  Firestore
+} from 'firebase/firestore';
+import { FirebaseConfigService } from './firebase-config.service';
 
 export interface User {
   id: string;
@@ -45,25 +67,97 @@ export class AuthService {
 
   private authStateSubject = new BehaviorSubject<AuthState>(this.authState);
   public authState$ = this.authStateSubject.asObservable();
+  private firestore: Firestore;
 
-  constructor() {
-    this.checkExistingSession();
+  constructor(private firebaseConfig: FirebaseConfigService) {
+    this.firestore = this.firebaseConfig.firestore;
+    this.initializeAuthListener();
   }
 
-  private checkExistingSession(): void {
-    // Check for existing session in localStorage
-    const storedUser = localStorage.getItem('swaralipi_user');
-    if (storedUser) {
-      try {
-        const user = JSON.parse(storedUser);
-        this.authState.user = user;
-        this.authState.isAuthenticated = true;
-        this.authStateSubject.next(this.authState);
-      } catch (error) {
-        console.error('Error parsing stored user:', error);
-        localStorage.removeItem('swaralipi_user');
+  /**
+   * Initialize Firebase auth state listener
+   */
+  private initializeAuthListener(): void {
+    onAuthStateChanged(this.firebaseConfig.auth, async (firebaseUser) => {
+      this.authState.isLoading = true;
+      this.authStateSubject.next(this.authState);
+
+      if (firebaseUser) {
+        // User is signed in
+        try {
+          const user = await this.loadUserData(firebaseUser);
+          this.authState.user = user;
+          this.authState.isAuthenticated = true;
+        } catch (error) {
+          console.error('Error loading user data:', error);
+          this.authState.error = 'Failed to load user data';
+        }
+      } else {
+        // User is signed out
+        this.authState.user = null;
+        this.authState.isAuthenticated = false;
       }
+
+      this.authState.isLoading = false;
+      this.authStateSubject.next(this.authState);
+    });
+  }
+
+  /**
+   * Load user data from Firestore
+   */
+  private async loadUserData(firebaseUser: FirebaseUser): Promise<User> {
+    const userDocRef = doc(this.firestore, 'users', firebaseUser.uid);
+    const userDoc = await getDoc(userDocRef);
+
+    if (userDoc.exists()) {
+      const data = userDoc.data();
+      return {
+        id: firebaseUser.uid,
+        email: firebaseUser.email!,
+        displayName: firebaseUser.displayName || data.displayName,
+        photoURL: firebaseUser.photoURL || data.photoURL,
+        emailVerified: firebaseUser.emailVerified,
+        createdAt: data.createdAt?.toDate() || new Date(),
+        lastLoginAt: new Date(),
+        preferences: data.preferences || this.getDefaultPreferences()
+      };
+    } else {
+      // Create new user document
+      const user: User = {
+        id: firebaseUser.uid,
+        email: firebaseUser.email!,
+        displayName: firebaseUser.displayName || firebaseUser.email!.split('@')[0],
+        photoURL: firebaseUser.photoURL,
+        emailVerified: firebaseUser.emailVerified,
+        createdAt: new Date(),
+        lastLoginAt: new Date(),
+        preferences: this.getDefaultPreferences()
+      };
+
+      await this.createUserDocument(user);
+      return user;
     }
+  }
+
+  /**
+   * Create user document in Firestore
+   */
+  private async createUserDocument(user: User): Promise<void> {
+    const userDocRef = doc(this.firestore, 'users', user.id);
+    await setDoc(userDocRef, {
+      uid: user.id,
+      email: user.email,
+      displayName: user.displayName,
+      photoURL: user.photoURL,
+      emailVerified: user.emailVerified,
+      createdAt: serverTimestamp(),
+      lastLoginAt: serverTimestamp(),
+      preferences: user.preferences,
+      compositionCount: 0,
+      recordingCount: 0,
+      storageUsed: 0
+    });
   }
 
   async signUp(email: string, password: string, displayName: string): Promise<User> {
@@ -72,33 +166,33 @@ export class AuthService {
     this.authStateSubject.next(this.authState);
 
     try {
-      // Simulate API call to authentication service
-      await this.simulateAPICall(1000);
-
-      const user: User = {
-        id: this.generateUserId(),
+      // Create Firebase user
+      const userCredential = await createUserWithEmailAndPassword(
+        this.firebaseConfig.auth,
         email,
-        displayName,
-        emailVerified: false,
-        createdAt: new Date(),
-        lastLoginAt: new Date(),
-        preferences: this.getDefaultPreferences()
-      };
+        password
+      );
+
+      // Update display name
+      await updateProfile(userCredential.user, { displayName });
+
+      // Send email verification
+      await sendEmailVerification(userCredential.user);
+
+      // Load user data (will create Firestore document)
+      const user = await this.loadUserData(userCredential.user);
 
       this.authState.user = user;
       this.authState.isAuthenticated = true;
       this.authState.isLoading = false;
-
-      // Store user in localStorage (in production, use secure token)
-      localStorage.setItem('swaralipi_user', JSON.stringify(user));
-
       this.authStateSubject.next(this.authState);
+
       return user;
     } catch (error: any) {
       this.authState.isLoading = false;
-      this.authState.error = error.message || 'Sign up failed';
+      this.authState.error = this.getErrorMessage(error);
       this.authStateSubject.next(this.authState);
-      throw error;
+      throw new Error(this.authState.error);
     }
   }
 
@@ -108,87 +202,88 @@ export class AuthService {
     this.authStateSubject.next(this.authState);
 
     try {
-      // Simulate API call
-      await this.simulateAPICall(1000);
+      // Sign in with Firebase
+      const userCredential = await signInWithEmailAndPassword(
+        this.firebaseConfig.auth,
+        email,
+        password
+      );
 
-      // In production, this would verify credentials with backend
-      const storedUser = localStorage.getItem('swaralipi_user');
-      let user: User;
+      // Update last login
+      const userDocRef = doc(this.firestore, 'users', userCredential.user.uid);
+      await updateDoc(userDocRef, {
+        lastLoginAt: serverTimestamp()
+      });
 
-      if (storedUser) {
-        user = JSON.parse(storedUser);
-        user.lastLoginAt = new Date();
-      } else {
-        // Create mock user for demo
-        user = {
-          id: this.generateUserId(),
-          email,
-          displayName: email.split('@')[0],
-          emailVerified: true,
-          createdAt: new Date(),
-          lastLoginAt: new Date(),
-          preferences: this.getDefaultPreferences()
-        };
-      }
+      // Load user data
+      const user = await this.loadUserData(userCredential.user);
 
       this.authState.user = user;
       this.authState.isAuthenticated = true;
       this.authState.isLoading = false;
-
-      localStorage.setItem('swaralipi_user', JSON.stringify(user));
-
       this.authStateSubject.next(this.authState);
+
       return user;
     } catch (error: any) {
       this.authState.isLoading = false;
-      this.authState.error = error.message || 'Sign in failed';
+      this.authState.error = this.getErrorMessage(error);
       this.authStateSubject.next(this.authState);
-      throw error;
+      throw new Error(this.authState.error);
     }
   }
 
   async signInWithGoogle(): Promise<User> {
     this.authState.isLoading = true;
+    this.authState.error = null;
     this.authStateSubject.next(this.authState);
 
     try {
-      await this.simulateAPICall(1500);
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({
+        prompt: 'select_account'
+      });
 
-      const user: User = {
-        id: this.generateUserId(),
-        email: 'user@gmail.com',
-        displayName: 'Google User',
-        photoURL: 'https://via.placeholder.com/150',
-        emailVerified: true,
-        createdAt: new Date(),
-        lastLoginAt: new Date(),
-        preferences: this.getDefaultPreferences()
-      };
+      const userCredential = await signInWithPopup(this.firebaseConfig.auth, provider);
+
+      // Update last login
+      const userDocRef = doc(this.firestore, 'users', userCredential.user.uid);
+      const userDoc = await getDoc(userDocRef);
+
+      if (userDoc.exists()) {
+        await updateDoc(userDocRef, {
+          lastLoginAt: serverTimestamp()
+        });
+      }
+
+      // Load user data
+      const user = await this.loadUserData(userCredential.user);
 
       this.authState.user = user;
       this.authState.isAuthenticated = true;
       this.authState.isLoading = false;
-
-      localStorage.setItem('swaralipi_user', JSON.stringify(user));
-
       this.authStateSubject.next(this.authState);
+
       return user;
     } catch (error: any) {
       this.authState.isLoading = false;
-      this.authState.error = error.message || 'Google sign in failed';
+      this.authState.error = this.getErrorMessage(error);
       this.authStateSubject.next(this.authState);
-      throw error;
+      throw new Error(this.authState.error);
     }
   }
 
   async signOut(): Promise<void> {
-    this.authState.user = null;
-    this.authState.isAuthenticated = false;
-    this.authState.error = null;
+    try {
+      await signOut(this.firebaseConfig.auth);
 
-    localStorage.removeItem('swaralipi_user');
-
-    this.authStateSubject.next(this.authState);
+      this.authState.user = null;
+      this.authState.isAuthenticated = false;
+      this.authState.error = null;
+      this.authStateSubject.next(this.authState);
+    } catch (error: any) {
+      console.error('Error signing out:', error);
+      throw error;
+    }
   }
 
   getCurrentUser(): User | null {
@@ -200,19 +295,40 @@ export class AuthService {
   }
 
   async updateProfile(updates: Partial<User>): Promise<User> {
-    if (!this.authState.user) {
+    if (!this.authState.user || !this.firebaseConfig.auth.currentUser) {
       throw new Error('No user logged in');
     }
 
-    this.authState.user = {
-      ...this.authState.user,
-      ...updates
-    };
+    try {
+      // Update Firebase Auth profile
+      if (updates.displayName || updates.photoURL) {
+        await updateProfile(this.firebaseConfig.auth.currentUser, {
+          displayName: updates.displayName,
+          photoURL: updates.photoURL
+        });
+      }
 
-    localStorage.setItem('swaralipi_user', JSON.stringify(this.authState.user));
-    this.authStateSubject.next(this.authState);
+      // Update Firestore user document
+      const userDocRef = doc(this.firestore, 'users', this.authState.user.id);
+      const updateData: any = {};
 
-    return this.authState.user;
+      if (updates.displayName) updateData.displayName = updates.displayName;
+      if (updates.photoURL) updateData.photoURL = updates.photoURL;
+
+      await updateDoc(userDocRef, updateData);
+
+      // Update local state
+      this.authState.user = {
+        ...this.authState.user,
+        ...updates
+      };
+
+      this.authStateSubject.next(this.authState);
+      return this.authState.user;
+    } catch (error: any) {
+      console.error('Error updating profile:', error);
+      throw error;
+    }
   }
 
   async updatePreferences(preferences: Partial<UserPreferences>): Promise<void> {
@@ -220,42 +336,60 @@ export class AuthService {
       throw new Error('No user logged in');
     }
 
-    this.authState.user.preferences = {
-      ...this.authState.user.preferences,
-      ...preferences
-    } as UserPreferences;
+    try {
+      const userDocRef = doc(this.firestore, 'users', this.authState.user.id);
+      const updatedPreferences = {
+        ...this.authState.user.preferences,
+        ...preferences
+      };
 
-    localStorage.setItem('swaralipi_user', JSON.stringify(this.authState.user));
-    this.authStateSubject.next(this.authState);
+      await updateDoc(userDocRef, {
+        preferences: updatedPreferences
+      });
+
+      this.authState.user.preferences = updatedPreferences as UserPreferences;
+      this.authStateSubject.next(this.authState);
+    } catch (error: any) {
+      console.error('Error updating preferences:', error);
+      throw error;
+    }
   }
 
   async sendPasswordResetEmail(email: string): Promise<void> {
-    await this.simulateAPICall(1000);
-    console.log(`Password reset email sent to ${email}`);
+    try {
+      await sendPasswordResetEmail(this.firebaseConfig.auth, email);
+    } catch (error: any) {
+      console.error('Error sending password reset email:', error);
+      throw new Error(this.getErrorMessage(error));
+    }
   }
 
   async verifyEmail(): Promise<void> {
-    if (!this.authState.user) {
+    if (!this.firebaseConfig.auth.currentUser) {
       throw new Error('No user logged in');
     }
 
-    await this.simulateAPICall(1000);
-    this.authState.user.emailVerified = true;
-    localStorage.setItem('swaralipi_user', JSON.stringify(this.authState.user));
-    this.authStateSubject.next(this.authState);
+    try {
+      await sendEmailVerification(this.firebaseConfig.auth.currentUser);
+    } catch (error: any) {
+      console.error('Error sending verification email:', error);
+      throw new Error(this.getErrorMessage(error));
+    }
   }
 
   async deleteAccount(): Promise<void> {
-    if (!this.authState.user) {
+    if (!this.firebaseConfig.auth.currentUser || !this.authState.user) {
       throw new Error('No user logged in');
     }
 
-    await this.simulateAPICall(1000);
-    await this.signOut();
-  }
-
-  private generateUserId(): string {
-    return `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    try {
+      // Delete user document from Firestore
+      // Note: Cloud Functions should handle cleanup of user's compositions, recordings, etc.
+      await deleteUser(this.firebaseConfig.auth.currentUser);
+    } catch (error: any) {
+      console.error('Error deleting account:', error);
+      throw new Error(this.getErrorMessage(error));
+    }
   }
 
   private getDefaultPreferences(): UserPreferences {
@@ -273,8 +407,36 @@ export class AuthService {
     };
   }
 
-  private simulateAPICall(delay: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, delay));
+  /**
+   * Convert Firebase error to user-friendly message
+   */
+  private getErrorMessage(error: any): string {
+    switch (error.code) {
+      case 'auth/email-already-in-use':
+        return 'Email already in use';
+      case 'auth/invalid-email':
+        return 'Invalid email address';
+      case 'auth/operation-not-allowed':
+        return 'Operation not allowed';
+      case 'auth/weak-password':
+        return 'Password is too weak';
+      case 'auth/user-disabled':
+        return 'Account has been disabled';
+      case 'auth/user-not-found':
+        return 'User not found';
+      case 'auth/wrong-password':
+        return 'Incorrect password';
+      case 'auth/invalid-credential':
+        return 'Invalid credentials';
+      case 'auth/popup-closed-by-user':
+        return 'Sign in cancelled';
+      case 'auth/network-request-failed':
+        return 'Network error. Please check your connection';
+      case 'auth/too-many-requests':
+        return 'Too many attempts. Please try again later';
+      default:
+        return error.message || 'An error occurred';
+    }
   }
 
   // Get user initials for avatar

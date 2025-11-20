@@ -1,7 +1,26 @@
 import { Injectable } from '@angular/core';
 import { BehaviorSubject, Observable } from 'rxjs';
+import {
+  collection,
+  doc,
+  setDoc,
+  getDoc,
+  getDocs,
+  updateDoc,
+  deleteDoc,
+  query,
+  where,
+  orderBy,
+  limit,
+  onSnapshot,
+  serverTimestamp,
+  increment,
+  Timestamp
+} from 'firebase/firestore';
 import { NotationGrid, CompositionMetadata, NotationLayer, CompositionLyrics } from '../models/notation.model';
 import { AuthService } from './auth';
+import { FirebaseConfigService } from './firebase-config.service';
+import { environment } from '../../environments/environment';
 
 export interface CloudComposition {
   id: string;
@@ -31,9 +50,6 @@ export interface StorageStats {
   providedIn: 'root'
 })
 export class CloudStorageService {
-  private compositions: Map<string, CloudComposition> = new Map();
-  private syncInProgress = false;
-
   private compositionsSubject = new BehaviorSubject<CloudComposition[]>([]);
   private statsSubject = new BehaviorSubject<StorageStats>({
     totalCompositions: 0,
@@ -45,65 +61,120 @@ export class CloudStorageService {
   public compositions$ = this.compositionsSubject.asObservable();
   public stats$ = this.statsSubject.asObservable();
 
-  constructor(private authService: AuthService) {
-    this.loadFromLocalStorage();
+  private unsubscribe: (() => void) | null = null;
+
+  constructor(
+    private authService: AuthService,
+    private firebaseConfig: FirebaseConfigService
+  ) {
+    this.initializeRealtimeSync();
   }
 
-  private loadFromLocalStorage(): void {
-    const stored = localStorage.getItem('swaralipi_cloud_compositions');
-    if (stored) {
-      try {
-        const data = JSON.parse(stored);
-        this.compositions = new Map(Object.entries(data));
-        this.updateCompositionsList();
-        this.updateStats();
-      } catch (error) {
-        console.error('Error loading compositions from localStorage:', error);
+  /**
+   * Initialize real-time synchronization for user's compositions
+   */
+  private initializeRealtimeSync(): void {
+    this.authService.authState$.subscribe(authState => {
+      // Cleanup previous listener
+      if (this.unsubscribe) {
+        this.unsubscribe();
+        this.unsubscribe = null;
       }
-    }
+
+      if (authState.isAuthenticated && authState.user) {
+        this.setupCompositionsListener(authState.user.id);
+        this.updateStats();
+      } else {
+        this.compositionsSubject.next([]);
+        this.statsSubject.next({
+          totalCompositions: 0,
+          storageUsed: 0,
+          storageLimit: 100 * 1024 * 1024,
+          lastSyncedAt: null
+        });
+      }
+    });
   }
 
-  private saveToLocalStorage(): void {
-    const data = Object.fromEntries(this.compositions);
-    localStorage.setItem('swaralipi_cloud_compositions', JSON.stringify(data));
-  }
+  /**
+   * Setup real-time listener for user's compositions
+   */
+  private setupCompositionsListener(userId: string): void {
+    const db = this.firebaseConfig.firestore;
+    const compositionsRef = collection(db, 'compositions');
+    const q = query(
+      compositionsRef,
+      where('userId', '==', userId),
+      orderBy('updatedAt', 'desc'),
+      limit(environment.features.maxCompositionsPerUser)
+    );
 
-  private updateCompositionsList(): void {
-    const user = this.authService.getCurrentUser();
-    if (user) {
-      const userCompositions = Array.from(this.compositions.values())
-        .filter(c => c.userId === user.id || c.sharedWith.includes(user.id));
-      this.compositionsSubject.next(userCompositions);
-    }
-  }
-
-  private updateStats(): void {
-    const user = this.authService.getCurrentUser();
-    if (user) {
-      const userCompositions = Array.from(this.compositions.values())
-        .filter(c => c.userId === user.id);
-
-      const storageUsed = userCompositions.reduce((total, comp) => {
-        return total + this.calculateCompositionSize(comp);
-      }, 0);
-
-      this.statsSubject.next({
-        totalCompositions: userCompositions.length,
-        storageUsed,
-        storageLimit: 100 * 1024 * 1024,
-        lastSyncedAt: new Date()
+    this.unsubscribe = onSnapshot(q, (snapshot) => {
+      const compositions: CloudComposition[] = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          ...data,
+          id: doc.id,
+          createdAt: data.createdAt?.toDate() || new Date(),
+          updatedAt: data.updatedAt?.toDate() || new Date()
+        } as CloudComposition;
       });
-    }
+
+      this.compositionsSubject.next(compositions);
+      this.updateStats();
+    }, (error) => {
+      console.error('Error listening to compositions:', error);
+    });
   }
 
+  /**
+   * Calculate composition size in bytes
+   */
   private calculateCompositionSize(comp: CloudComposition): number {
     return JSON.stringify(comp).length;
   }
 
+  /**
+   * Generate unique composition ID
+   */
   private generateCompositionId(): string {
     return `comp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
+  /**
+   * Update storage statistics
+   */
+  private async updateStats(): Promise<void> {
+    const user = this.authService.getCurrentUser();
+    if (!user) return;
+
+    try {
+      const userDocRef = doc(this.firebaseConfig.firestore, 'users', user.id);
+      const userDoc = await getDoc(userDocRef);
+
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        const compositions = this.compositionsSubject.value;
+        const storageUsed = compositions.reduce(
+          (total, comp) => total + this.calculateCompositionSize(comp),
+          0
+        );
+
+        this.statsSubject.next({
+          totalCompositions: userData.compositionCount || compositions.length,
+          storageUsed,
+          storageLimit: 100 * 1024 * 1024,
+          lastSyncedAt: new Date()
+        });
+      }
+    } catch (error) {
+      console.error('Error updating stats:', error);
+    }
+  }
+
+  /**
+   * Save new composition to Firestore
+   */
   async saveComposition(
     grid: NotationGrid,
     title?: string,
@@ -115,8 +186,15 @@ export class CloudStorageService {
       throw new Error('User must be authenticated to save to cloud');
     }
 
+    // Check composition limit
+    const currentStats = this.statsSubject.value;
+    if (currentStats.totalCompositions >= environment.features.maxCompositionsPerUser) {
+      throw new Error(`Maximum composition limit (${environment.features.maxCompositionsPerUser}) reached`);
+    }
+
+    const compositionId = this.generateCompositionId();
     const composition: CloudComposition = {
-      id: this.generateCompositionId(),
+      id: compositionId,
       userId: user.id,
       title: title || grid.metadata.title || 'Untitled Composition',
       grid,
@@ -131,100 +209,195 @@ export class CloudStorageService {
       version: 1
     };
 
-    this.compositions.set(composition.id, composition);
-    this.saveToLocalStorage();
-    this.updateCompositionsList();
-    this.updateStats();
+    try {
+      const db = this.firebaseConfig.firestore;
+      const compositionRef = doc(db, 'compositions', compositionId);
 
-    // Simulate cloud sync
-    await this.simulateCloudSync(composition);
+      await setDoc(compositionRef, {
+        ...composition,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
 
-    return composition;
+      // Update user's composition count
+      const userDocRef = doc(db, 'users', user.id);
+      await updateDoc(userDocRef, {
+        compositionCount: increment(1)
+      });
+
+      return composition;
+    } catch (error) {
+      console.error('Error saving composition:', error);
+      throw error;
+    }
   }
 
+  /**
+   * Update existing composition
+   */
   async updateComposition(
     id: string,
     grid: NotationGrid,
     layers?: NotationLayer[],
     lyrics?: CompositionLyrics
   ): Promise<CloudComposition> {
-    const composition = this.compositions.get(id);
-    if (!composition) {
-      throw new Error('Composition not found');
-    }
-
     const user = this.authService.getCurrentUser();
-    if (!user || composition.userId !== user.id) {
-      throw new Error('Unauthorized to update this composition');
+    if (!user) {
+      throw new Error('User must be authenticated');
     }
 
-    composition.grid = grid;
-    composition.layers = layers;
-    composition.lyrics = lyrics;
-    composition.metadata = grid.metadata;
-    composition.updatedAt = new Date();
-    composition.version++;
+    try {
+      const db = this.firebaseConfig.firestore;
+      const compositionRef = doc(db, 'compositions', id);
+      const compositionDoc = await getDoc(compositionRef);
 
-    this.compositions.set(id, composition);
-    this.saveToLocalStorage();
-    this.updateCompositionsList();
-    this.updateStats();
+      if (!compositionDoc.exists()) {
+        throw new Error('Composition not found');
+      }
 
-    await this.simulateCloudSync(composition);
+      const data = compositionDoc.data();
+      if (data.userId !== user.id) {
+        throw new Error('Unauthorized to update this composition');
+      }
 
-    return composition;
+      const updateData = {
+        grid,
+        layers,
+        lyrics,
+        metadata: grid.metadata,
+        updatedAt: serverTimestamp(),
+        version: increment(1)
+      };
+
+      await updateDoc(compositionRef, updateData);
+
+      return {
+        ...data,
+        ...updateData,
+        id,
+        updatedAt: new Date(),
+        version: data.version + 1
+      } as CloudComposition;
+    } catch (error) {
+      console.error('Error updating composition:', error);
+      throw error;
+    }
   }
 
+  /**
+   * Delete composition
+   */
   async deleteComposition(id: string): Promise<void> {
-    const composition = this.compositions.get(id);
-    if (!composition) {
-      throw new Error('Composition not found');
-    }
-
     const user = this.authService.getCurrentUser();
-    if (!user || composition.userId !== user.id) {
-      throw new Error('Unauthorized to delete this composition');
+    if (!user) {
+      throw new Error('User must be authenticated');
     }
 
-    this.compositions.delete(id);
-    this.saveToLocalStorage();
-    this.updateCompositionsList();
-    this.updateStats();
+    try {
+      const db = this.firebaseConfig.firestore;
+      const compositionRef = doc(db, 'compositions', id);
+      const compositionDoc = await getDoc(compositionRef);
 
-    await this.simulateCloudSync();
+      if (!compositionDoc.exists()) {
+        throw new Error('Composition not found');
+      }
+
+      const data = compositionDoc.data();
+      if (data.userId !== user.id) {
+        throw new Error('Unauthorized to delete this composition');
+      }
+
+      await deleteDoc(compositionRef);
+
+      // Update user's composition count
+      const userDocRef = doc(db, 'users', user.id);
+      await updateDoc(userDocRef, {
+        compositionCount: increment(-1)
+      });
+    } catch (error) {
+      console.error('Error deleting composition:', error);
+      throw error;
+    }
   }
 
-  getComposition(id: string): CloudComposition | undefined {
-    return this.compositions.get(id);
+  /**
+   * Get single composition
+   */
+  async getComposition(id: string): Promise<CloudComposition | undefined> {
+    try {
+      const db = this.firebaseConfig.firestore;
+      const compositionRef = doc(db, 'compositions', id);
+      const compositionDoc = await getDoc(compositionRef);
+
+      if (!compositionDoc.exists()) {
+        return undefined;
+      }
+
+      const data = compositionDoc.data();
+      return {
+        ...data,
+        id: compositionDoc.id,
+        createdAt: data.createdAt?.toDate() || new Date(),
+        updatedAt: data.updatedAt?.toDate() || new Date()
+      } as CloudComposition;
+    } catch (error) {
+      console.error('Error getting composition:', error);
+      return undefined;
+    }
   }
 
+  /**
+   * Get all accessible compositions (owned + shared)
+   */
   getAllCompositions(): CloudComposition[] {
-    const user = this.authService.getCurrentUser();
-    if (!user) return [];
-
-    return Array.from(this.compositions.values())
-      .filter(c => c.userId === user.id || c.sharedWith.includes(user.id))
-      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+    return this.compositionsSubject.value;
   }
 
+  /**
+   * Get user's own compositions
+   */
   getMyCompositions(): CloudComposition[] {
     const user = this.authService.getCurrentUser();
     if (!user) return [];
 
-    return Array.from(this.compositions.values())
-      .filter(c => c.userId === user.id)
-      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+    return this.compositionsSubject.value.filter(c => c.userId === user.id);
   }
 
-  getSharedCompositions(): CloudComposition[] {
+  /**
+   * Get compositions shared with user
+   */
+  async getSharedCompositions(): Promise<CloudComposition[]> {
     const user = this.authService.getCurrentUser();
     if (!user) return [];
 
-    return Array.from(this.compositions.values())
-      .filter(c => c.sharedWith.includes(user.id))
-      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+    try {
+      const db = this.firebaseConfig.firestore;
+      const compositionsRef = collection(db, 'compositions');
+      const q = query(
+        compositionsRef,
+        where('sharedWith', 'array-contains', user.id),
+        orderBy('updatedAt', 'desc')
+      );
+
+      const snapshot = await getDocs(q);
+      return snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          ...data,
+          id: doc.id,
+          createdAt: data.createdAt?.toDate() || new Date(),
+          updatedAt: data.updatedAt?.toDate() || new Date()
+        } as CloudComposition;
+      });
+    } catch (error) {
+      console.error('Error getting shared compositions:', error);
+      return [];
+    }
   }
 
+  /**
+   * Search compositions
+   */
   searchCompositions(query: string): CloudComposition[] {
     const lowerQuery = query.toLowerCase();
     return this.getAllCompositions().filter(c =>
@@ -234,175 +407,271 @@ export class CloudStorageService {
     );
   }
 
+  /**
+   * Share composition with users
+   */
   async shareComposition(id: string, userIds: string[]): Promise<void> {
-    const composition = this.compositions.get(id);
-    if (!composition) {
-      throw new Error('Composition not found');
-    }
-
-    const user = this.authService.getCurrentUser();
-    if (!user || composition.userId !== user.id) {
-      throw new Error('Unauthorized to share this composition');
-    }
-
-    composition.sharedWith = [...new Set([...composition.sharedWith, ...userIds])];
-    this.compositions.set(id, composition);
-    this.saveToLocalStorage();
-    this.updateCompositionsList();
-
-    await this.simulateCloudSync(composition);
-  }
-
-  async unshareComposition(id: string, userId: string): Promise<void> {
-    const composition = this.compositions.get(id);
-    if (!composition) {
-      throw new Error('Composition not found');
-    }
-
-    const currentUser = this.authService.getCurrentUser();
-    if (!currentUser || composition.userId !== currentUser.id) {
-      throw new Error('Unauthorized to unshare this composition');
-    }
-
-    composition.sharedWith = composition.sharedWith.filter(u => u !== userId);
-    this.compositions.set(id, composition);
-    this.saveToLocalStorage();
-    this.updateCompositionsList();
-
-    await this.simulateCloudSync(composition);
-  }
-
-  async setPublic(id: string, isPublic: boolean): Promise<void> {
-    const composition = this.compositions.get(id);
-    if (!composition) {
-      throw new Error('Composition not found');
-    }
-
-    const user = this.authService.getCurrentUser();
-    if (!user || composition.userId !== user.id) {
-      throw new Error('Unauthorized to modify this composition');
-    }
-
-    composition.isPublic = isPublic;
-    this.compositions.set(id, composition);
-    this.saveToLocalStorage();
-    this.updateCompositionsList();
-
-    await this.simulateCloudSync(composition);
-  }
-
-  async addTags(id: string, tags: string[]): Promise<void> {
-    const composition = this.compositions.get(id);
-    if (!composition) {
-      throw new Error('Composition not found');
-    }
-
-    const user = this.authService.getCurrentUser();
-    if (!user || composition.userId !== user.id) {
-      throw new Error('Unauthorized to modify this composition');
-    }
-
-    composition.tags = [...new Set([...composition.tags, ...tags])];
-    this.compositions.set(id, composition);
-    this.saveToLocalStorage();
-    this.updateCompositionsList();
-
-    await this.simulateCloudSync(composition);
-  }
-
-  async duplicateComposition(id: string, newTitle?: string): Promise<CloudComposition> {
-    const original = this.compositions.get(id);
-    if (!original) {
-      throw new Error('Composition not found');
-    }
-
     const user = this.authService.getCurrentUser();
     if (!user) {
       throw new Error('User must be authenticated');
     }
 
-    const duplicate: CloudComposition = {
-      ...JSON.parse(JSON.stringify(original)),
-      id: this.generateCompositionId(),
-      userId: user.id,
-      title: newTitle || `${original.title} (Copy)`,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      version: 1,
-      sharedWith: []
-    };
-
-    this.compositions.set(duplicate.id, duplicate);
-    this.saveToLocalStorage();
-    this.updateCompositionsList();
-    this.updateStats();
-
-    await this.simulateCloudSync(duplicate);
-
-    return duplicate;
-  }
-
-  async syncWithCloud(): Promise<void> {
-    if (this.syncInProgress) return;
-
-    this.syncInProgress = true;
     try {
-      // Simulate cloud sync
-      await this.simulateCloudSync();
-      this.updateStats();
-    } finally {
-      this.syncInProgress = false;
+      const db = this.firebaseConfig.firestore;
+      const compositionRef = doc(db, 'compositions', id);
+      const compositionDoc = await getDoc(compositionRef);
+
+      if (!compositionDoc.exists()) {
+        throw new Error('Composition not found');
+      }
+
+      const data = compositionDoc.data();
+      if (data.userId !== user.id) {
+        throw new Error('Unauthorized to share this composition');
+      }
+
+      const currentShared = data.sharedWith || [];
+      const newShared = [...new Set([...currentShared, ...userIds])];
+
+      await updateDoc(compositionRef, {
+        sharedWith: newShared,
+        updatedAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.error('Error sharing composition:', error);
+      throw error;
     }
   }
 
+  /**
+   * Unshare composition from user
+   */
+  async unshareComposition(id: string, userId: string): Promise<void> {
+    const currentUser = this.authService.getCurrentUser();
+    if (!currentUser) {
+      throw new Error('User must be authenticated');
+    }
+
+    try {
+      const db = this.firebaseConfig.firestore;
+      const compositionRef = doc(db, 'compositions', id);
+      const compositionDoc = await getDoc(compositionRef);
+
+      if (!compositionDoc.exists()) {
+        throw new Error('Composition not found');
+      }
+
+      const data = compositionDoc.data();
+      if (data.userId !== currentUser.id) {
+        throw new Error('Unauthorized to unshare this composition');
+      }
+
+      const currentShared = data.sharedWith || [];
+      const newShared = currentShared.filter((u: string) => u !== userId);
+
+      await updateDoc(compositionRef, {
+        sharedWith: newShared,
+        updatedAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.error('Error unsharing composition:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Set composition public/private
+   */
+  async setPublic(id: string, isPublic: boolean): Promise<void> {
+    const user = this.authService.getCurrentUser();
+    if (!user) {
+      throw new Error('User must be authenticated');
+    }
+
+    try {
+      const db = this.firebaseConfig.firestore;
+      const compositionRef = doc(db, 'compositions', id);
+      const compositionDoc = await getDoc(compositionRef);
+
+      if (!compositionDoc.exists()) {
+        throw new Error('Composition not found');
+      }
+
+      const data = compositionDoc.data();
+      if (data.userId !== user.id) {
+        throw new Error('Unauthorized to modify this composition');
+      }
+
+      await updateDoc(compositionRef, {
+        isPublic,
+        updatedAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.error('Error setting public status:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Add tags to composition
+   */
+  async addTags(id: string, tags: string[]): Promise<void> {
+    const user = this.authService.getCurrentUser();
+    if (!user) {
+      throw new Error('User must be authenticated');
+    }
+
+    try {
+      const db = this.firebaseConfig.firestore;
+      const compositionRef = doc(db, 'compositions', id);
+      const compositionDoc = await getDoc(compositionRef);
+
+      if (!compositionDoc.exists()) {
+        throw new Error('Composition not found');
+      }
+
+      const data = compositionDoc.data();
+      if (data.userId !== user.id) {
+        throw new Error('Unauthorized to modify this composition');
+      }
+
+      const currentTags = data.tags || [];
+      const newTags = [...new Set([...currentTags, ...tags])];
+
+      await updateDoc(compositionRef, {
+        tags: newTags,
+        updatedAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.error('Error adding tags:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Duplicate composition
+   */
+  async duplicateComposition(id: string, newTitle?: string): Promise<CloudComposition> {
+    const user = this.authService.getCurrentUser();
+    if (!user) {
+      throw new Error('User must be authenticated');
+    }
+
+    try {
+      const original = await this.getComposition(id);
+      if (!original) {
+        throw new Error('Composition not found');
+      }
+
+      const duplicate: CloudComposition = {
+        ...JSON.parse(JSON.stringify(original)),
+        id: this.generateCompositionId(),
+        userId: user.id,
+        title: newTitle || `${original.title} (Copy)`,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        version: 1,
+        sharedWith: []
+      };
+
+      const db = this.firebaseConfig.firestore;
+      const compositionRef = doc(db, 'compositions', duplicate.id);
+
+      await setDoc(compositionRef, {
+        ...duplicate,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+
+      // Update user's composition count
+      const userDocRef = doc(db, 'users', user.id);
+      await updateDoc(userDocRef, {
+        compositionCount: increment(1)
+      });
+
+      return duplicate;
+    } catch (error) {
+      console.error('Error duplicating composition:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Sync with cloud (already real-time, but can force refresh)
+   */
+  async syncWithCloud(): Promise<void> {
+    await this.updateStats();
+  }
+
+  /**
+   * Get storage stats
+   */
   getStats(): StorageStats {
     return this.statsSubject.value;
   }
 
-  private async simulateCloudSync(composition?: CloudComposition): Promise<void> {
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 500));
-    console.log('Cloud sync completed', composition?.id || 'all compositions');
-  }
-
-  // Export all user's compositions
+  /**
+   * Export all user's compositions as JSON
+   */
   async exportAllCompositions(): Promise<string> {
     const myCompositions = this.getMyCompositions();
     return JSON.stringify(myCompositions, null, 2);
   }
 
-  // Import compositions
+  /**
+   * Import compositions from JSON
+   */
   async importCompositions(jsonData: string): Promise<number> {
+    const user = this.authService.getCurrentUser();
+    if (!user) {
+      throw new Error('User must be authenticated');
+    }
+
     try {
       const imported: CloudComposition[] = JSON.parse(jsonData);
-      const user = this.authService.getCurrentUser();
-      if (!user) {
-        throw new Error('User must be authenticated');
-      }
-
+      const db = this.firebaseConfig.firestore;
       let count = 0;
+
       for (const comp of imported) {
+        const newCompId = this.generateCompositionId();
         const newComp: CloudComposition = {
           ...comp,
-          id: this.generateCompositionId(),
+          id: newCompId,
           userId: user.id,
           createdAt: new Date(),
           updatedAt: new Date(),
           sharedWith: []
         };
 
-        this.compositions.set(newComp.id, newComp);
+        const compositionRef = doc(db, 'compositions', newCompId);
+        await setDoc(compositionRef, {
+          ...newComp,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+
         count++;
       }
 
-      this.saveToLocalStorage();
-      this.updateCompositionsList();
-      this.updateStats();
+      // Update user's composition count
+      const userDocRef = doc(db, 'users', user.id);
+      await updateDoc(userDocRef, {
+        compositionCount: increment(count)
+      });
 
       return count;
     } catch (error) {
       console.error('Error importing compositions:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Cleanup when service is destroyed
+   */
+  ngOnDestroy(): void {
+    if (this.unsubscribe) {
+      this.unsubscribe();
     }
   }
 }

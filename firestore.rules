@@ -1,0 +1,114 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function hasAccess(userId, sharedWith) {
+      return isOwner(userId) || (isAuthenticated() && request.auth.uid in sharedWith);
+    }
+
+    function isValidComposition() {
+      let incoming = request.resource.data;
+      return incoming.keys().hasAll(['title', 'userId', 'createdAt', 'updatedAt', 'isPublic', 'grid'])
+        && incoming.title is string
+        && incoming.title.size() > 0
+        && incoming.title.size() <= 200
+        && incoming.userId is string
+        && incoming.createdAt is timestamp
+        && incoming.updatedAt is timestamp
+        && incoming.isPublic is bool;
+    }
+
+    function respectsStorageLimit() {
+      // Allow up to 50 compositions per user (free tier optimization)
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.compositionCount < 50;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isOwner(userId) && request.resource.data.uid == userId;
+      allow delete: if false; // Prevent accidental deletion
+    }
+
+    // Compositions collection
+    match /compositions/{compositionId} {
+      allow read: if resource.data.isPublic
+        || isOwner(resource.data.userId)
+        || (isAuthenticated() && request.auth.uid in resource.data.sharedWith);
+
+      allow create: if isAuthenticated()
+        && isValidComposition()
+        && request.resource.data.userId == request.auth.uid
+        && respectsStorageLimit();
+
+      allow update: if isOwner(resource.data.userId)
+        && isValidComposition()
+        && request.resource.data.userId == resource.data.userId; // Prevent ownership change
+
+      allow delete: if isOwner(resource.data.userId);
+
+      // Version history subcollection
+      match /versions/{versionId} {
+        allow read: if hasAccess(get(/databases/$(database)/documents/compositions/$(compositionId)).data.userId,
+                                 get(/databases/$(database)/documents/compositions/$(compositionId)).data.sharedWith);
+        allow write: if isOwner(get(/databases/$(database)/documents/compositions/$(compositionId)).data.userId);
+      }
+
+      // Comments subcollection
+      match /comments/{commentId} {
+        allow read: if hasAccess(get(/databases/$(database)/documents/compositions/$(compositionId)).data.userId,
+                                 get(/databases/$(database)/documents/compositions/$(compositionId)).data.sharedWith);
+        allow create: if isAuthenticated();
+        allow update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      }
+    }
+
+    // Recordings collection
+    match /recordings/{recordingId} {
+      allow read: if isOwner(resource.data.userId);
+      allow create: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid;
+      allow update: if isOwner(resource.data.userId);
+      allow delete: if isOwner(resource.data.userId);
+    }
+
+    // Practice sessions collection
+    match /practiceSessions/{sessionId} {
+      allow read: if isOwner(resource.data.userId);
+      allow create: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid;
+      allow update: if false; // Immutable
+      allow delete: if isOwner(resource.data.userId);
+    }
+
+    // Performance analytics collection
+    match /analytics/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId);
+    }
+
+    // Share links collection
+    match /shareLinks/{linkId} {
+      allow read: if true; // Public access for validation
+      allow create: if isAuthenticated();
+      allow update, delete: if isAuthenticated() && resource.data.createdBy == request.auth.uid;
+    }
+
+    // Collaboration presence (ephemeral data)
+    match /presence/{compositionId}/users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId);
+    }
+  }
+}

@@ -1,0 +1,59 @@
+# See http://help.github.com/ignore-files/ for more about ignoring files.
+
+# Compiled output
+/dist
+/tmp
+/out-tsc
+/bazel-out
+/swaralipi-app/dist
+/swaralipi-app/.angular
+
+# Node
+/node_modules
+npm-debug.log
+yarn-error.log
+/swaralipi-app/node_modules
+/functions/node_modules
+/functions/lib
+
+# IDEs and editors
+.idea/
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.history/*
+
+# Miscellaneous
+/.angular/cache
+.sass-cache/
+/connect.lock
+/coverage
+/libpeerconnection.log
+testem.log
+/typings
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Firebase
+.firebase/
+*-debug.log
+firebase-debug*.log
+.runtimeconfig.json
+
+# Environment files with secrets
+/swaralipi-app/src/environments/environment.ts
+/swaralipi-app/src/environments/environment.prod.ts
+
+# Keep example environment files
+!environment.example.ts
+!environment.prod.example.ts
