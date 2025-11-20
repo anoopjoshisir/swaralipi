@@ -1,0 +1,63 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidImageFile() {
+      return request.resource.size < 5 * 1024 * 1024 // 5MB max
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    function isValidAudioFile() {
+      return request.resource.size < 5 * 1024 * 1024 // 5MB max
+        && (request.resource.contentType.matches('audio/.*')
+           || request.resource.contentType == 'audio/webm'
+           || request.resource.contentType == 'audio/wav'
+           || request.resource.contentType == 'audio/mp3');
+    }
+
+    function isValidExportFile() {
+      return request.resource.size < 10 * 1024 * 1024 // 10MB max
+        && (request.resource.contentType.matches('application/pdf')
+           || request.resource.contentType.matches('image/png')
+           || request.resource.contentType.matches('audio/midi'));
+    }
+
+    // User profile images
+    match /users/{userId}/profile/{fileName} {
+      allow read: if true; // Public read
+      allow write: if isOwner(userId) && isValidImageFile();
+      allow delete: if isOwner(userId);
+    }
+
+    // Audio recordings
+    match /recordings/{userId}/{recordingId}/{fileName} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId) && isValidAudioFile();
+      allow delete: if isOwner(userId);
+    }
+
+    // Exported files (PDF, PNG, MIDI)
+    match /exports/{userId}/{compositionId}/{fileName} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId) && isValidExportFile();
+      allow delete: if isOwner(userId);
+    }
+
+    // Temporary files (auto-delete after 24h via Cloud Function)
+    match /temp/{userId}/{fileName} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId);
+      allow delete: if isOwner(userId);
+    }
+  }
+}

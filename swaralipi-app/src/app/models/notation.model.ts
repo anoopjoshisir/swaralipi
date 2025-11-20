@@ -7,7 +7,7 @@ export interface NotationCell {
   isHeader: boolean;
 }
 
-export type Modifier = 'lower' | 'upper' | 'meend' | 'kan';
+export type Modifier = 'lower' | 'upper' | 'meend' | 'kan' | 'gamak' | 'murki' | 'khatka' | 'zamzama' | 'gitkari' | 'andolan';
 
 export interface TaalStructure {
   beats: number;
@@ -148,11 +148,88 @@ export const SWAR_FREQUENCIES: { [key: string]: number } = {
   'नी': 493.88     // B4 (Ni)
 };
 
+// Layer support - Phase 2
+export interface NotationLayer {
+  id: string;
+  name: string;
+  type: 'vocal' | 'tabla' | 'tanpura' | 'harmonium' | 'custom';
+  visible: boolean;
+  locked: boolean;
+  cells: NotationCell[][];
+  volume: number;
+  pan: number; // -1 (left) to 1 (right)
+}
+
+export interface MultiLayerGrid extends NotationGrid {
+  layers: NotationLayer[];
+  activeLayerId: string;
+}
+
+// Lyrics support - Phase 2
+export interface LyricsLine {
+  rowIndex: number;
+  lyrics: string[];  // One lyric per beat
+  language?: 'hindi' | 'urdu' | 'sanskrit' | 'english';
+}
+
+export interface CompositionLyrics {
+  lines: LyricsLine[];
+  showLyrics: boolean;
+}
+
+// Selection range - Phase 2
+export interface SelectionRange {
+  startRow: number;
+  startCol: number;
+  endRow: number;
+  endCol: number;
+}
+
+// Template - Phase 2
+export interface CompositionTemplate {
+  id: string;
+  name: string;
+  description: string;
+  category: 'bandish' | 'taan' | 'alaap' | 'tarana' | 'bhajan' | 'ghazal';
+  taal: string;
+  raga?: string;
+  grid: NotationCell[][];
+  metadata: CompositionMetadata;
+  thumbnail?: string;
+  tags: string[];
+}
+
+// Advanced ornaments mapping - Phase 2
+export const ORNAMENT_SYMBOLS: { [key in Modifier]?: string } = {
+  'lower': '॰',      // Lower octave
+  'upper': '˙',      // Upper octave
+  'meend': '~',      // Slide between notes
+  'kan': 'ₖ',        // Grace note
+  'gamak': '≈',      // Oscillation
+  'murki': 'ᵐ',      // Quick turn
+  'khatka': 'ₓ',     // Shake
+  'zamzama': 'ᶻ',    // Tremolo
+  'gitkari': 'ᵍ',    // Plucked
+  'andolan': '∿'     // Gentle oscillation
+};
+
+// Import formats - Phase 2
+export interface ImportResult {
+  success: boolean;
+  grid?: NotationGrid;
+  layers?: NotationLayer[];
+  lyrics?: CompositionLyrics;
+  error?: string;
+}
+
 // Export options
 export interface ExportOptions {
-  format: 'pdf' | 'png' | 'json' | 'svg';
+  format: 'pdf' | 'png' | 'json' | 'svg' | 'midi' | 'musicxml';
   title?: string;
   includeMetadata?: boolean;
   pageSize?: 'a4' | 'letter' | 'a3';
   orientation?: 'portrait' | 'landscape';
+  includeLyrics?: boolean;
+  includeLayers?: boolean;
+  layerIds?: string[]; // Export specific layers only
 }
